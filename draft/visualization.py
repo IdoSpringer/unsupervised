@@ -9,6 +9,11 @@ import numpy as np
 import pandas as pd
 
 
+# methods:
+# MDS
+# UMAP / t-SNE
+
+
 def load_graph():
     # get graph and race_dict
     graph_file = 'unsupervised/geno/pkl/graph'
@@ -51,6 +56,18 @@ def save_graph(graph,file_name):
     plt.savefig(file_name, bbox_inches="tight")
     pylab.close()
     del fig
+
+
+def mds():
+    pass
+
+
+def umap():
+    pass
+
+
+def t_sne():
+    pass
 
 
 if __name__ == '__main__':

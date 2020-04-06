@@ -1,6 +1,5 @@
 import pickle
 import time
-from math import e
 import matplotlib
 import networkx as nx
 import community
@@ -8,34 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import cProfile
-# import matplotlib.patches as mpatches
+import json
+import pathlib
 
 
 
-def check_simlarity(geno1, geno2):
-    count_similar = 0
-
-    #geno1 = geno1.split('~')
-    #geno2 = geno2.split('~')
-
-    for i in range(0,10, 2):
-        if geno1[i] == geno2[i]:
-            if geno1[i+1] == geno2[i+1]:
-                count_similar +=2
-            else:
-                count_similar +=1
-        elif geno1[i+1] == geno2[i+1]:
-            count_similar += 1
-        elif  geno1[i] == geno2[i+1]:
-            count_similar += 1
-        elif  geno1[i+1] == geno2[i]:
-            count_similar += 1
-
-        if count_similar < i:
-            return 0
-
-    return count_similar
-
+#create graph: nodes of genotypes, edges- between 2 genotypes with 9 identical alleles
 def create_graph(f_data, weights, resolution):
     t=time.time()
     list_9_nodes = []
@@ -43,19 +20,23 @@ def create_graph(f_data, weights, resolution):
     graph = nx.Graph()
     with open(f_data) as f_in:
         for line in f_in:
-            id, geno, race1, race2, _, _ = line.strip().split(',')
+            id, geno, race1, race2 = line.strip().split(',')[0:4]
+            geno = geno.replace('+', '~').replace('^', '~')
 
+            #if id with a genotype that is not yet in the graph
             if not geno in graph.nodes():
                 graph.add_node(geno, ids={}, alleles = 10)
                 alleles_list = geno.split('~')
+                #create temporal nodes of all combination of 9-alleles
                 for i in range(len(alleles_list)):
                     alleles_9_list = alleles_list[0:i] + alleles_list[i+1:10]
                     geno_9 = ('~').join(alleles_9_list)
+                    #if 9-alleles already in the graph - then have a genotype-1 match
                     if geno_9 in graph.nodes():
                         adjs = graph.adj[geno_9]
                         for adj in adjs:
                             if geno != adj:
-                                graph.add_edge(geno, adj, weight=weights[1])
+                                graph.add_edge(geno, adj, weight=weights[0])
                         graph.add_edge(geno, geno_9, weight=9)
                     else:
                         graph.add_node(geno_9,  alleles=9)
@@ -64,8 +45,7 @@ def create_graph(f_data, weights, resolution):
 
             graph.nodes[geno]['ids'][id] = (race1, race2)
 
-            #graph.nodes[geno]['alleles'] = geno.split('~')
-
+            #count how much from each race
             races_dict[race1] = races_dict.get(race1, 0) + 1
             races_dict[race2] = races_dict.get(race2, 0) + 1
 
@@ -73,45 +53,18 @@ def create_graph(f_data, weights, resolution):
     dict_count = {}
     print(len(graph.nodes()))
 
+    #remove temporal nodes
     for node in list_9_nodes:
-        #if graph.node[node]['alleles'] == 9:
-            graph.remove_node(node)
-
-    #dict_genos = graph.nodes()
-    """t = time.time()
-    for idx, key1 in enumerate(graph.nodes()):
-        #val1 =dict_genos[key1]['alleles']
-        val1 = dict_genos[key1]
-        if (idx % 10000) == 0:
-            print("index: ", idx)
-            print("total time:", time.time() - t)
-
-
-    # for key1 in graph.nodes():
-        last_key = key1
-        start = False
-        for key2 in graph.nodes():
-            if start:
-                #similarity = check_simlarity(val1,dict_genos[key2]['alleles'])
-                similarity = check_simlarity(val1, dict_genos[key2])
-                if similarity == 8:
-                    graph.add_edge(key1, key2, weight=weights[2])
-                    dict_count[similarity] = dict_count.get(similarity, 0) + 1
-                elif similarity == 9:
-                    graph.add_edge(key1, key2, weight=weights[1])
-                    dict_count[similarity] = dict_count.get(similarity, 0) + 1
-            else:
-               if key2 == last_key:
-                   start = True"""
+        graph.remove_node(node)
 
     print(dict_count)
-    pickle.dump(graph, open("./grid_pkl/graph_"+str(resolution)+"_"+str(weights[0]), "wb"))
-    pickle.dump(races_dict, open("./grid_pkl/races_dict_"+str(resolution)+"_"+str(weights[0]), "wb"))
-    #pickle.dump(dict_ids, open("./grid_pkl/dict_ids_"+str(resolution)+"_"+str(weights[0]), "wb"))
+    #pickle.dump(graph, open("./grid_pkl/graph_"+str(resolution)+"_"+str(weights[0]), "wb"))
+    #pickle.dump(races_dict, open("./grid_pkl/races_dict_"+str(resolution)+"_"+str(weights[0]), "wb"))
     print("graph creation time: ", time.time()-t)
-    return graph, races_dict#, dict_ids
+    return graph, races_dict
 
 
+#run community detection on graph
 def community_detection(graph, reso, weights):
     t=time.time()
     partition = community.best_partition(graph, resolution=reso)
@@ -120,6 +73,7 @@ def community_detection(graph, reso, weights):
     return partition
 
 
+#convert community format- save to dict of community_number:list of genos
 def community_nodes(cd, resolution, weights):
     t=time.time()
     com_nodes = dict()
@@ -129,6 +83,7 @@ def community_nodes(cd, resolution, weights):
     print("community nodes time:", time.time()-t)
     return com_nodes
 
+#which races in each community, and number of appearances
 def com_races(com_nodes, dict_genos):
     t = time.time()
     com_race_count = {}
@@ -137,12 +92,14 @@ def com_races(com_nodes, dict_genos):
         for geno in genos:
             for id, races in dict_genos[geno]['ids'].items():
                 concat = races[0] + '_' + races[1]
-                #concat =  dict_ids[id]['races'][0]+"_"+ dict_ids[id]['races'][1]
                 com_race_count[com][concat] = com_race_count[com].get(concat, 0) + 1
     print("com races time:", time.time() - t)
     return com_race_count
 
-
+#for each community that contains more then 2 ids find:
+# max: the number of ids from the race that appears the most
+# count_all: number of all ids that in the community
+# total: max/count_all
 def most_pop(com_race_count,f_results,weights,resolution):
     t=time.time()
     count_maxs=0
@@ -160,9 +117,6 @@ def most_pop(com_race_count,f_results,weights,resolution):
         most_common = sorted(dict_apperances.items(), key=lambda x: x[1], reverse=True)
         com_tags[com]=most_common
         top_race[com] = most_common[0][0]
-        """if len(most_common) > 1:
-            if most_common[0][1] == most_common[1][1]:
-                top_race[com] = ('_').join(sorted[ most_common[0][0],  most_common[1][0]])"""
         com_size[com]=sum(races.values())
         percent_top_race[com]=most_common[0][1]/com_size[com]
         if com_size[com]>2:
@@ -177,34 +131,15 @@ def most_pop(com_race_count,f_results,weights,resolution):
     print("most pop", time.time()-t)
     return top_race, com_size, percent_top_race, com_tags
 
-def plot_pop(percent_top_race,com_size, resolution, weights):
-    t= time.time()
 
-    size, accuracy = [], []
-    for com in percent_top_race:
-        # plt.scatter(com_size[com], percent_top_race[com], color='blue', marker='*')
-        size.append(com_size[com])
-        accuracy.append(percent_top_race[com])
-
-    plt.figure()
-    plt.scatter(size, accuracy, color='blue', marker='*')
-    plt.xlabel("Community Size")
-    plt.tight_layout()
-    # plt.savefig("./grid_plots/most pop race percent"+str(resolution)+"_"+str(weights[0])+".png")
-    plt.show()
-    print("plot pop time:", time.time()-t)
-    return
-
+#option to change the wight of graph that read from pickle
 def update_graph(weights):
     graph = pickle.load(open("./graph", "rb"))
-    # for u,v in graph.edges:
     for u, v, weight in graph.edges.data('weight'):
         if graph[u][v]['weight']==8:
             graph[u][v]['weight']=weights[2]
         elif graph[u][v]['weight']==9:
             graph[u][v]['weight'] = weights[1]
-        elif graph[u][v]['weight']==10:
-            graph[u][v]['weight'] = weights[0]
     return graph
 
 def plot_communitues(top_race, com_size, resolution, weights):
@@ -253,8 +188,7 @@ def plot_communitues(top_race, com_size, resolution, weights):
     plt.tight_layout()
     plt.savefig("./grid_plots/color com" + str(resolution ) + "_" + str(weights[0] ) + ".png")
     print("plot communities time: ", time.time()-t)
-    # plt.show()
-    e=0
+
 
 def confusion_matrix(top_race,nodes_data,cd, races,weights,resolution):
     t= time.time()
@@ -281,8 +215,10 @@ def confusion_matrix(top_race,nodes_data,cd, races,weights,resolution):
     plt.matshow(new_matrix);
     plt.colorbar()
     plt.tight_layout()
-    # plt.savefig("./grid_plots/cofution_matrix_" + str(resolution) + "_" + str(weights[0]) + ".png")
-    plt.show()
+    plt.xlabel("Predicted race")
+    plt.ylabel("Real race")
+    plt.savefig("./grid_plots/cofution_matrix_" + str(resolution) + "_" + str(weights[0]) + ".png")
+    #plt.show()
     print("confusion matrix time:", time.time()-t)
     return
 
@@ -327,20 +263,31 @@ if __name__ == "__main__":
     pr = cProfile.Profile()
     pr.enable()
     t=time.time()
-    f_data = 'new_data_geno.txt'
+    #f_data = 'new_data_geno.txt'
 
+    pathlib.Path('grid_pkl').mkdir(parents=False, exist_ok=True)
+    pathlib.Path('grid_plots').mkdir(parents=False, exist_ok=True)
 
-    # weights_list = [[4,1,0.3],[2,1,0.5]]
-    weights_list = [[10,1, 0.2]]
-    resolution_list = [1]
-    # resolution_list = np.logspace(0.001, 1, num=5, base=2)
+    # Read configuration file and load properties
+    with open('params_file.json') as f:
+        params = json.load(f)
+
+    config = {
+        "f_data": params.get("data_file", 'new_data_geno.txt'),
+        "weights": params.get("weights", [1]),
+        "reso": params.get("resolution", 1),
+    }
+
+    weights_list = [config["weights"]]
+    resolution_list = [config["reso"]]
     f_results = open('results.csv','w')
     for weights in weights_list:
         for resolution in resolution_list:
 
-            # graph, race_dict = create_graph(f_data,weights, resolution)
-            graph = pickle.load(open("./graph", "rb"))
-            race_dict = pickle.load(open("./races_dict","rb"))
+            graph, race_dict = create_graph(config["f_data"],weights, resolution)
+            #graph = pickle.load(open("./grid_pkl/graph_"+str(resolution)+"_"+str(weights[0]), "rb"))
+            #race_dict = pickle.load(open("./grid_pkl/races_dict_"+str(resolution)+"_"+str(weights[0]), "rb"))
+            print(len(graph.nodes()))
             print(len(race_dict))
             # graph = update_graph(weights)
 
@@ -348,11 +295,11 @@ if __name__ == "__main__":
             print("number of comp:", num_of_comp)
             # print(race_dict)
 
-            # cd = community_detection(graph, resolution, weights)
-            cd = pickle.load(open("./cd", "rb"))
+            cd = community_detection(graph, resolution, weights)
+            #cd = pickle.load(open("./grid_pkl/cd_"+str(resolution)+"_"+str(weights[0]), "rb"))
 
-            # com_nodes = community_nodes(cd,resolution, weights)
-            com_nodes = pickle.load(open("./com_nodes", "rb"))
+            com_nodes = community_nodes(cd,resolution, weights)
+            #com_nodes = pickle.load(open("./grid_pkl/com_nodes_"+str(resolution)+"_"+str(weights[0]),"rb"))
             print("number of communities:", len(com_nodes))
             com_race_count = com_races(com_nodes, graph.nodes())
             print(com_race_count)
@@ -361,11 +308,10 @@ if __name__ == "__main__":
             values=set(top_race.values())
             print("num of diffrent com tags", len(values))
 
-            plot_pop(percent_top_race, com_size, resolution, weights)
             plot_communitues(top_race, com_size, resolution, weights)
             confusion_matrix(top_race, graph.nodes, cd, race_dict,weights, resolution)
             check_entropy(com_size, com_labels)
     print("total time:", time.time()-t)
     pr.disable()
-    pr.print_stats(sort="time")
+    #pr.print_stats(sort="time")
 

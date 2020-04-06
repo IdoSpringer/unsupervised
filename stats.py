@@ -1,11 +1,18 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import json
 
 dict_races = {}
 dict_race_count_mr_sr = {}#list for each race - 0idx - count of SR, 1 idx - count of MR
 
 count_mr = 0
-with open('new_data_geno.txt') as in_f:
+
+with open('params_file.json') as f:
+    params = json.load(f)
+
+f_data = params.get("data_file", 'new_data_geno.txt')
+
+with open(f_data) as in_f:
     for line in in_f:
         line = line.strip().split(',')
         race1 = line[2]
